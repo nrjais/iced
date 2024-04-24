@@ -98,6 +98,13 @@ impl editor::Editor for Editor {
         self.internal().editor.copy_selection()
     }
 
+    fn selection_cursor(&self) -> Option<(usize, usize)> {
+        self.internal()
+            .editor
+            .select_opt()
+            .map(|cursor| (cursor.line, cursor.index))
+    }
+
     fn cursor(&self) -> editor::Cursor {
         let internal = self.internal();
 
@@ -465,6 +472,25 @@ impl editor::Editor for Editor {
                         cosmic_text::Action::Scroll { lines },
                     );
                 }
+            }
+            Action::SelectTo(line, col) => {
+                let cursor = editor.cursor();
+                editor.set_select_opt(Some(cursor));
+                editor.set_cursor(cosmic_text::Cursor {
+                    line,
+                    index: col,
+                    affinity: cosmic_text::Affinity::Before,
+                    color: None,
+                });
+            }
+            Action::Cursor(line, col) => {
+                editor.set_select_opt(None);
+                editor.set_cursor(cosmic_text::Cursor {
+                    line,
+                    index: col,
+                    affinity: cosmic_text::Affinity::Before,
+                    color: None,
+                });
             }
         }
 
