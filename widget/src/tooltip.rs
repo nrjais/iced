@@ -21,6 +21,11 @@
 //!     ).into()
 //! }
 //! ```
+//! Display a widget over another.
+use std::time::{Duration, Instant};
+
+use iced_runtime::core::window::RedrawRequest;
+
 use crate::container;
 use crate::core::event::{self, Event};
 use crate::core::layout::{self, Layout};
@@ -74,6 +79,7 @@ pub struct Tooltip<
     padding: f32,
     snap_within_viewport: bool,
     class: Theme::Class<'a>,
+    delay: Duration,
 }
 
 impl<'a, Message, Theme, Renderer> Tooltip<'a, Message, Theme, Renderer>
@@ -100,6 +106,7 @@ where
             padding: Self::DEFAULT_PADDING,
             snap_within_viewport: true,
             class: Theme::default(),
+            delay: Duration::from_millis(500),
         }
     }
 
@@ -203,17 +210,27 @@ where
     ) -> event::Status {
         let state = tree.state.downcast_mut::<State>();
 
-        let was_idle = *state == State::Idle;
+        let hover_time = if let State::Hovered { time, .. } = *state {
+            time
+        } else {
+            Instant::now()
+        };
 
         *state = cursor
             .position_over(layout.bounds())
-            .map(|cursor_position| State::Hovered { cursor_position })
+            .map(|cursor_position| State::Hovered {
+                cursor_position,
+                time: hover_time,
+            })
             .unwrap_or_default();
 
-        let is_idle = *state == State::Idle;
+        if let State::Hovered { time, .. } = *state {
+            let elapsed = time.elapsed();
 
-        if was_idle != is_idle {
-            shell.invalidate_layout();
+            if elapsed < self.delay {
+                let left = self.delay - elapsed;
+                shell.request_redraw(RedrawRequest::At(Instant::now() + left));
+            }
         }
 
         self.content.as_widget_mut().on_event(
@@ -284,19 +301,27 @@ where
             translation,
         );
 
-        let tooltip = if let State::Hovered { cursor_position } = *state {
-            Some(overlay::Element::new(Box::new(Overlay {
-                position: layout.position() + translation,
-                tooltip: &self.tooltip,
-                state: children.next().unwrap(),
-                cursor_position,
-                content_bounds: layout.bounds(),
-                snap_within_viewport: self.snap_within_viewport,
-                positioning: self.position,
-                gap: self.gap,
-                padding: self.padding,
-                class: &self.class,
-            })))
+        let tooltip = if let State::Hovered {
+            cursor_position,
+            time,
+        } = *state
+        {
+            if time.elapsed() < self.delay {
+                None
+            } else {
+                Some(overlay::Element::new(Box::new(Overlay {
+                    position: layout.position() + translation,
+                    tooltip: &self.tooltip,
+                    state: children.next().unwrap(),
+                    cursor_position,
+                    content_bounds: layout.bounds(),
+                    snap_within_viewport: self.snap_within_viewport,
+                    positioning: self.position,
+                    gap: self.gap,
+                    padding: self.padding,
+                    class: &self.class,
+                })))
+            }
         } else {
             None
         };
@@ -350,6 +375,7 @@ enum State {
     Idle,
     Hovered {
         cursor_position: Point,
+        time: Instant,
     },
 }
 
